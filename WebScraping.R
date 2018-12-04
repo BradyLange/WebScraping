@@ -3,7 +3,10 @@
 # Description: Web scraping techniques.
 
 # Load libraries
+library(tidyverse)
+library(magrittr)
 library(rvest)
+library(stringr)
 
 # URL for website to be scraped
 url <- "https://www.indeed.com/jobs?q=computer+science+internship&l="
@@ -70,16 +73,28 @@ scrape_desc <- function(url, num_pages = 1)
   }
   as.character(url)
   as.numeric(num_pages)
-  # Update Selenium package
-  update.packages("RSelenium")
-  # Load Selenium 
-  library(RSelenium)
-  
+
+  tryCatch(
+  {
+    # Load Selenium 
+    library(RSelenium)
+  }, 
+  error = function(e) 
+  {
+    # Install/Update Selenium package
+    install.packages("RSelenium")
+  }
+  )
+
   # Connect to Chrome browser
   chromeDriver <<- rsDriver() 
   client <- chromeDriver$client
   # Allow time to connect to server (1 second)
   Sys.sleep(1)
+  # Set wait time for the driver to search for elements (5 seconds)
+  client$setImplicitWaitTimeout(milliseconds = 5000)
+  # Set wait time to time-out on page-load (10 seconds)
+  client$setTimeout(type = "page load", milliseconds = 10000)
   
   print("Loading web page...")
   
@@ -98,7 +113,7 @@ scrape_desc <- function(url, num_pages = 1)
     # Let page load for 0.10 seconds
     Sys.sleep(0.10)
   }
-  # Retrieve the upated URL
+  # Retrieve the updated URL
   url <- client$getCurrentUrl()
   # Navigate to the update URL
   client$navigate(url)
@@ -113,24 +128,19 @@ scrape_desc <- function(url, num_pages = 1)
   {
     # Prevent stale element references, refresh element references
     app_card_elem <- client$findElements(using = "css selector", "#SearchResults .card-content")
-    # Retrieve current URL
-    url[i] <- client$getCurrentUrl()
-    # Navigate to current URL
-    client$navigate(url[i])
-    # Click application card 
+    # Click application card
     app_card_elem[[i]]$clickElement()
-    # Retrieve current URL
-    #url[i] <- client$getCurrentUrl()
-    # Navigate to current URL
-    #client$navigate(url[i])
-    # Let page load for one second
-    Sys.sleep(1)
-    # Find the element that is located in the dynamic webpage 
-    desc_elem <- client$findElement(using = "css selector", "#JobBody .card-content")
-    # Retrieve the elements text, split it by next line character, and trim the white space
+    # Let page load for half of a second
+    Sys.sleep(0.50)
+    # Find the element that is located in the dynamic webpage, wrapped in try block to avoid pages that don't contain selector
+    desc_elem <- try(client$findElement(using = "css selector", "#JobBody .card-content"))
+    # Retrieve the elements text, split it by next line character, trim the white space, unnest tokens, keep only unique tokens
+    # to avoid inaccurate analysis for each job application 
     text <- tibble(text = desc_elem$getElementText()[[1]] %>% 
       str_split("\n", simplify = T) %>% 
-      str_trim(.))
+      str_trim(.)) %>%
+      unnest_tokens(input = text, output = token) %>%
+      unique(.)
     # If no text is in return variable set text to the return variable
     if (is.null(all_text))
     {
@@ -146,12 +156,20 @@ scrape_desc <- function(url, num_pages = 1)
   chromeDriver[["server"]]$stop() 
   
   # Print all of the applications description text
+  print("Finished web scraping successfully!")
   all_text
 }
 
 apps_text <- scrape_desc(url, 9)
 
 # Selenium methods:
+# Connect to Chrome browser 
+chromeDriver <- rsDriver() 
+client <- chromeDriver$client
+
+l <- client$refresh()
+l$
+
 # Find the element that is located in the dynamic webpage 
 desc_elem <- client$findElement(using = "css selector", "#JobBody .card-content")
 
@@ -178,4 +196,3 @@ chromeDriver[["server"]]$stop()
 rm(chromeDriver)
 # Garbage collect server variable
 gc(chromeDriver)
-
